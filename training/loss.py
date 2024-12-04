@@ -76,6 +76,7 @@ class StyleGAN2Loss(Loss):
                 training_stats.report('Loss/scores/fake', gen_logits)
                 training_stats.report('Loss/signs/fake', gen_logits.sign())
                 loss_Gmain = torch.nn.functional.softplus(-gen_logits) # -log(sigmoid(gen_logits))
+                loss_Gmain_value = loss_Gmain.mean().item()
                 training_stats.report('Loss/G/loss', loss_Gmain)
             with torch.autograd.profiler.record_function('Gmain_backward'):
                 loss_Gmain.mean().mul(gain).backward()
@@ -94,6 +95,7 @@ class StyleGAN2Loss(Loss):
                 pl_penalty = (pl_lengths - pl_mean).square()
                 training_stats.report('Loss/pl_penalty', pl_penalty)
                 loss_Gpl = pl_penalty * self.pl_weight
+                loss_Gpl_value = loss_Gpl.mean().item()
                 training_stats.report('Loss/G/reg', loss_Gpl)
             with torch.autograd.profiler.record_function('Gpl_backward'):
                 loss_Gpl.mean().mul(gain).backward()
@@ -107,6 +109,7 @@ class StyleGAN2Loss(Loss):
                 training_stats.report('Loss/scores/fake', gen_logits)
                 training_stats.report('Loss/signs/fake', gen_logits.sign())
                 loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
+                loss_Dgen_value = loss_Dgen.mean().item()
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()
 
@@ -123,6 +126,7 @@ class StyleGAN2Loss(Loss):
                 loss_Dreal = 0
                 if phase in ['Dmain', 'Dboth']:
                     loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
+                    loss_Dreal_value = loss_Dreal.mean().item()
                     training_stats.report('Loss/D/loss', loss_Dgen + loss_Dreal)
 
                 loss_Dr1 = 0
@@ -131,6 +135,7 @@ class StyleGAN2Loss(Loss):
                         r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
                     r1_penalty = r1_grads.square().sum([1,2,3])
                     loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
+                    loss_Dr1_value = loss_Dr1.mean().item()
                     training_stats.report('Loss/r1_penalty', r1_penalty)
                     training_stats.report('Loss/D/reg', loss_Dr1)
 
@@ -138,7 +143,7 @@ class StyleGAN2Loss(Loss):
                 (loss_Dreal + loss_Dr1).mean().mul(gain).backward()
 
         total_penalty = sum(
-            value for value in [loss_Gmain_value, loss_Gpl_value, loss_Dgen_value, loss_Dreal_value, loss_Dr1_value]
+            value for value in [loss_Gmain, loss_Gpl, loss_Dgen, loss_Dreal, loss_Dr1_value]
             if value is not None
         )
 
