@@ -14,8 +14,6 @@ from torch_utils import training_stats
 from torch_utils.ops import conv2d_gradfix
 from torch_utils.ops import upfirdn2d
 
-from facenet_pytorch import MTCNN
-
 #----------------------------------------------------------------------------
 
 class Loss:
@@ -142,9 +140,9 @@ class StyleGAN2Loss(Loss):
 #----------------------------------------------------------------------------
 
 class StyleGAN2Loss_noface(StyleGAN2Loss):
-    def __init__(self, device, G, D, mtcnn, **kwargs):
+    def __init__(self, device, G, D, face_detector, **kwargs):
         super().__init__(device, G, D, **kwargs)
-        self.mtcnn = mtcnn
+        self.face_detector = face_detector
 
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
         super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
@@ -153,9 +151,9 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
             with torch.autograd.profiler.record_function('G_noface_loss'):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c)
 
-                # Detect faces using MTCNN
+                # Detect faces using face_detector
                 face_scores = torch.tensor(
-                    [1 if self.mtcnn(img.unsqueeze(0)) else 0 for img in gen_img],
+                    [1 if self.face_detector(img.unsqueeze(0)) else 0 for img in gen_img],
                     dtype=torch.float32,
                     device=self.device
                 )

@@ -23,11 +23,10 @@ from torch_utils import training_stats
 from torch_utils import custom_ops
 
 from facenet_pytorch import MTCNN
-from training.loss import StyleGAN2Loss_noface
 
 #----------------------------------------------------------------------------
 
-def subprocess_fn(rank, c, temp_dir):
+def subprocess_fn(rank, c, face_detector, temp_dir):
     dnnlib.util.Logger(file_name=os.path.join(c.run_dir, 'log.txt'), file_mode='a', should_flush=True)
 
     # Init torch.distributed.
@@ -47,7 +46,7 @@ def subprocess_fn(rank, c, temp_dir):
         custom_ops.verbosity = 'none'
 
     # Execute training loop.
-    training_loop.training_loop(rank=rank, mtcnn=c.mtcnn, **c)
+    training_loop.training_loop(rank=rank, face_detector=face_detector, **c)
 
 #----------------------------------------------------------------------------
 
@@ -65,8 +64,7 @@ def launch_training(c, desc, outdir, dry_run):
     assert not os.path.exists(c.run_dir)
 
     print('Initializing face detector...')
-    mtcnn = MTCNN(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-    c.mtcnn = mtcnn
+    face_detector = MTCNN(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
 
     # Print options.
@@ -102,9 +100,9 @@ def launch_training(c, desc, outdir, dry_run):
     torch.multiprocessing.set_start_method('spawn')
     with tempfile.TemporaryDirectory() as temp_dir:
         if c.num_gpus == 1:
-            subprocess_fn(rank=0, c=c, temp_dir=temp_dir)
+            subprocess_fn(rank=0, c=c, face_detector=face_detector, temp_dir=temp_dir)
         else:
-            torch.multiprocessing.spawn(fn=subprocess_fn, args=(c, temp_dir), nprocs=c.num_gpus)
+            torch.multiprocessing.spawn(fn=subprocess_fn, args=(c, face_detector, temp_dir), nprocs=c.num_gpus)
 
 #----------------------------------------------------------------------------
 
