@@ -22,7 +22,12 @@ from metrics import metric_main
 from torch_utils import training_stats
 from torch_utils import custom_ops
 
+from facenet_pytorch import MTCNN
+
 #----------------------------------------------------------------------------
+
+def setup_mtcnn(device):
+    return MTCNN(device=device)
 
 def subprocess_fn(rank, c, temp_dir):
     dnnlib.util.Logger(file_name=os.path.join(c.run_dir, 'log.txt'), file_mode='a', should_flush=True)
@@ -85,6 +90,12 @@ def launch_training(c, desc, outdir, dry_run):
     # Create output directory.
     print('Creating output directory...')
     os.makedirs(c.run_dir)
+
+    # Initialize MTCNN
+    if not dry_run:
+        print('Initializing face detector...')
+        c.mtcnn = setup_mtcnn(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+
     with open(os.path.join(c.run_dir, 'training_options.json'), 'wt') as f:
         json.dump(c, f, indent=2)
 
@@ -191,7 +202,7 @@ def main(**kwargs):
     c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
     c.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
-    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')
+    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss_noface')
     c.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, prefetch_factor=2)
 
     # Training set.

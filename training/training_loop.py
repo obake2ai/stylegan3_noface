@@ -120,6 +120,7 @@ def training_loop(
     cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
     abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
+    mtcnn=None,  # Face detector passed from train.py
 ):
     # Initialize.
     start_time = time.time()
@@ -151,6 +152,10 @@ def training_loop(
     common_kwargs = dict(c_dim=training_set.label_dim, img_resolution=training_set.resolution, img_channels=training_set.num_channels)
     G = dnnlib.util.construct_class_by_name(**G_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
     D = dnnlib.util.construct_class_by_name(**D_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
+
+    # Modify Discriminator
+    D.face_head = torch.nn.Linear(D.output_dim, 1).to(device)  # Add face detection head
+
     G_ema = copy.deepcopy(G).eval()
 
     # Resume from existing pickle.
@@ -160,6 +165,7 @@ def training_loop(
             resume_data = legacy.load_network_pkl(f)
         for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
             misc.copy_params_and_buffers(resume_data[name], module, require_all=False)
+
 
     # Print network summary tables.
     if rank == 0:

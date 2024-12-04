@@ -138,3 +138,27 @@ class StyleGAN2Loss(Loss):
                 (loss_Dreal + loss_Dr1).mean().mul(gain).backward()
 
 #----------------------------------------------------------------------------
+
+class StyleGAN2Loss_noface(StyleGAN2Loss):
+    def __init__(self, device, G, D, mtcnn, **kwargs):
+        super().__init__(device, G, D, **kwargs)
+        self.mtcnn = mtcnn
+
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
+        super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
+
+        if phase in ['Gmain', 'Gboth']:
+            with torch.autograd.profiler.record_function('G_noface_loss'):
+                gen_img, _gen_ws = self.run_G(gen_z, gen_c)
+
+                # Detect faces using MTCNN
+                face_scores = torch.tensor(
+                    [1 if self.mtcnn(img.unsqueeze(0)) else 0 for img in gen_img],
+                    dtype=torch.float32,
+                    device=self.device
+                )
+
+                # Penalize images classified as faces
+                face_penalty = torch.nn.functional.binary_cross_entropy(face_scores, torch.zeros_like(face_scores))
+                training_stats.report('Loss/G/face_penalty', face_penalty)
+                face_penalty.mean().mul(gain).backward()
