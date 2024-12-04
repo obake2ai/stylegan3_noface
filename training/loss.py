@@ -160,7 +160,10 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                         boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
 
                         # Append probability of face detection or 0 if no faces detected
-                        face_probs.append(probs[0] if probs is not None else 0.0)
+                        if probs is not None and len(probs) > 0:
+                            face_probs.append(probs[0])  # Use the first face's probability
+                        else:
+                            face_probs.append(0.0)  # No faces detected
                     except Exception as e:
                         # Handle unexpected errors during face detection
                         face_probs.append(0.0)
