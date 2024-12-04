@@ -22,12 +22,7 @@ from metrics import metric_main
 from torch_utils import training_stats
 from torch_utils import custom_ops
 
-from facenet_pytorch import MTCNN
-
 #----------------------------------------------------------------------------
-
-def setup_mtcnn(device):
-    return MTCNN(device=device)
 
 def subprocess_fn(rank, c, temp_dir):
     dnnlib.util.Logger(file_name=os.path.join(c.run_dir, 'log.txt'), file_mode='a', should_flush=True)
@@ -90,11 +85,6 @@ def launch_training(c, desc, outdir, dry_run):
     # Create output directory.
     print('Creating output directory...')
     os.makedirs(c.run_dir)
-
-    # Initialize MTCNN
-    if not dry_run:
-        print('Initializing face detector...')
-        c.mtcnn = setup_mtcnn(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
     with open(os.path.join(c.run_dir, 'training_options.json'), 'wt') as f:
         json.dump(c, f, indent=2)
