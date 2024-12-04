@@ -22,6 +22,9 @@ from metrics import metric_main
 from torch_utils import training_stats
 from torch_utils import custom_ops
 
+from facenet_pytorch import MTCNN
+from training.loss import StyleGAN2Loss_noface
+
 #----------------------------------------------------------------------------
 
 def subprocess_fn(rank, c, temp_dir):
@@ -60,6 +63,20 @@ def launch_training(c, desc, outdir, dry_run):
     cur_run_id = max(prev_run_ids, default=-1) + 1
     c.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
     assert not os.path.exists(c.run_dir)
+
+    print('Initializing face detector...')
+    mtcnn = MTCNN(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+\
+    c.loss_kwargs = dnnlib.EasyDict(
+        class_name='training.loss.StyleGAN2Loss_noface',
+        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        G=c.G_kwargs,
+        D=c.D_kwargs,
+        mtcnn=mtcnn,
+        r1_gamma=c.loss_kwargs.r1_gamma,  # pass original args
+        style_mixing_prob=c.loss_kwargs.style_mixing_prob,
+        pl_weight=c.loss_kwargs.pl_weight,
+    )
 
     # Print options.
     print()
