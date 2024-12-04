@@ -61,6 +61,11 @@ class StyleGAN2Loss(Loss):
         return logits
 
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
+        loss_Gmain_value = None
+        loss_Gpl_value = None
+        loss_Dgen_value = None
+        loss_Dreal_value = None
+        loss_Dr1_value = None
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
         if self.pl_weight == 0:
             phase = {'Greg': 'none', 'Gboth': 'Gmain'}.get(phase, phase)
