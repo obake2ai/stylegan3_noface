@@ -137,6 +137,18 @@ class StyleGAN2Loss(Loss):
             with torch.autograd.profiler.record_function(name + '_backward'):
                 (loss_Dreal + loss_Dr1).mean().mul(gain).backward()
 
+        total_penalty = sum(
+            value for value in [loss_Gmain_value, loss_Gpl_value, loss_Dgen_value, loss_Dreal_value, loss_Dr1_value]
+            if value is not None
+        )
+
+        training_stats.report('Loss/Total_penalty', total_penalty)
+
+        if phase in ['Gmain', 'Gboth']:
+            print(f"[Phase: {phase}] Gmain: {loss_Gmain_value}, Gpl: {loss_Gpl_value}, Total: {total_penalty:.4f}")
+        if phase in ['Dmain', 'Dboth']:
+            print(f"[Phase: {phase}] Dgen: {loss_Dgen_value}, Dreal: {loss_Dreal_value}, Dr1: {loss_Dr1_value}, Total: {total_penalty:.4f}")
+
 #----------------------------------------------------------------------------
 class StyleGAN2Loss_noface(StyleGAN2Loss):
     def __init__(self, device, G, D, face_detector, **kwargs):
@@ -154,14 +166,8 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                 face_probs = []
                 for i, img in enumerate(gen_img):
                     try:
-                        # Scale image to [0, 255] and convert to uint8
                         img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-
-                        # Detect faces
                         boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
-
-                        # Debug print: Check detection output
-                        print(f"Image {i}: boxes={boxes}, probs={probs[0]}")
 
                         # If no faces are detected, probs will be None
                         if probs[0] is not None and len(probs) > 0:
@@ -180,8 +186,13 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                 target_probs = torch.zeros_like(face_probs, requires_grad=False)  # Target: Not Face (probability close to 0)
                 face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
 
-                # Debug print: Check face penalty
-                print(f"Face penalty: {face_penalty.item()}")
-
                 # Backpropagation
                 face_penalty.mean().mul(gain).backward()
+
+                # Face penalty
+                if phase in ['Gmain', 'Gboth']:
+                    face_penalty_value = face_penalty.item()
+                    training_stats.report('Loss/G/face_penalty', face_penalty_value)
+
+                # 全ペナルティを表示
+                print(f"[Phase: {phase}] Face_penalty: {face_penalty_value}")
