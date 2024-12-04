@@ -138,7 +138,6 @@ class StyleGAN2Loss(Loss):
                 (loss_Dreal + loss_Dr1).mean().mul(gain).backward()
 
 #----------------------------------------------------------------------------
-
 class StyleGAN2Loss_noface(StyleGAN2Loss):
     def __init__(self, device, G, D, face_detector, **kwargs):
         super().__init__(device, G, D, **kwargs)
@@ -166,7 +165,7 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
 
                         # If no faces are detected, probs will be None
                         if probs is not None and len(probs) > 0:
-                            face_probs.append(float(probs[0]))  # Use the first detected face's probability
+                            face_probs.append(probs[0])  # Use the first detected face's probability
                         else:
                             face_probs.append(0.0)  # No faces detected
                     except Exception as e:
@@ -175,14 +174,14 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                         face_probs.append(0.0)
 
                 # Convert probabilities to tensor
-                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device)
-
-                # Debug print: Check face probabilities
-                print(f"Face probabilities: {face_probs}")
+                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
 
                 # Penalize high face detection probabilities
-                target_probs = torch.zeros_like(face_probs)  # Target: Not Face (probability close to 0)
+                target_probs = torch.zeros_like(face_probs, requires_grad=False)  # Target: Not Face (probability close to 0)
                 face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
-                training_stats.report('Loss/G/face_penalty', face_penalty)
-                print(f"Face penalty: {face_penalty.item()}")  # Debug print for face penalty
+
+                # Debug print: Check face penalty
+                print(f"Face penalty: {face_penalty.item()}")
+
+                # Backpropagation
                 face_penalty.mean().mul(gain).backward()
