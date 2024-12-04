@@ -153,25 +153,36 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
 
                 # Detect faces using MTCNN and compute probabilities
                 face_probs = []
-                for img in gen_img:
+                for i, img in enumerate(gen_img):
                     try:
-                        # Scale image to [0, 255] and detect faces
+                        # Scale image to [0, 255] and convert to uint8
                         img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+
+                        # Detect faces
                         boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
 
-                        # Append probability of face detection or 0 if no faces detected
+                        # Debug print: Check detection output
+                        print(f"Image {i}: boxes={boxes}, probs={probs}")
+
+                        # If no faces are detected, probs will be None
                         if probs is not None and len(probs) > 0:
-                            face_probs.append(probs[0])  # Use the first face's probability
+                            face_probs.append(float(probs[0]))  # Use the first detected face's probability
                         else:
                             face_probs.append(0.0)  # No faces detected
                     except Exception as e:
                         # Handle unexpected errors during face detection
+                        print(f"Error during face detection for image {i}: {e}")
                         face_probs.append(0.0)
 
+                # Convert probabilities to tensor
                 face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device)
+
+                # Debug print: Check face probabilities
+                print(f"Face probabilities: {face_probs}")
 
                 # Penalize high face detection probabilities
                 target_probs = torch.zeros_like(face_probs)  # Target: Not Face (probability close to 0)
                 face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
                 training_stats.report('Loss/G/face_penalty', face_penalty)
+                print(f"Face penalty: {face_penalty.item()}")  # Debug print for face penalty
                 face_penalty.mean().mul(gain).backward()
