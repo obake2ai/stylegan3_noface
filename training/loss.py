@@ -151,14 +151,24 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
             with torch.autograd.profiler.record_function('G_noface_loss'):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c)
 
-                # Detect faces using face_detector
-                face_scores = torch.tensor(
-                    [1 if self.face_detector(img.unsqueeze(0)) else 0 for img in gen_img],
-                    dtype=torch.float32,
-                    device=self.device
-                )
+                # Detect faces using MTCNN and compute probabilities
+                face_probs = []
+                for img in gen_img:
+                    try:
+                        # Scale image to [0, 255] and detect faces
+                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+                        boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
 
-                # Penalize images classified as faces
-                face_penalty = torch.nn.functional.binary_cross_entropy(face_scores, torch.zeros_like(face_scores))
+                        # Append probability of face detection or 0 if no faces detected
+                        face_probs.append(probs[0] if probs is not None else 0.0)
+                    except Exception as e:
+                        # Handle unexpected errors during face detection
+                        face_probs.append(0.0)
+
+                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device)
+
+                # Penalize high face detection probabilities
+                target_probs = torch.zeros_like(face_probs)  # Target: Not Face (probability close to 0)
+                face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
                 training_stats.report('Loss/G/face_penalty', face_penalty)
                 face_penalty.mean().mul(gain).backward()
