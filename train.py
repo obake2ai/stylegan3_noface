@@ -66,17 +66,8 @@ def launch_training(c, desc, outdir, dry_run):
 
     print('Initializing face detector...')
     mtcnn = MTCNN(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-\
-    c.loss_kwargs = dnnlib.EasyDict(
-        class_name='training.loss.StyleGAN2Loss_noface',
-        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-        G=c.G_kwargs,
-        D=c.D_kwargs,
-        mtcnn=mtcnn,
-        r1_gamma=c.loss_kwargs.r1_gamma,  # pass original args
-        style_mixing_prob=c.loss_kwargs.style_mixing_prob,
-        pl_weight=c.loss_kwargs.pl_weight,
-    )
+    c.loss_kwargs = dnnlib.EasyDict(mtcnn=mtcnn)
+
 
     # Print options.
     print()
