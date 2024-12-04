@@ -143,7 +143,7 @@ class StyleGAN2Loss(Loss):
                 (loss_Dreal + loss_Dr1).mean().mul(gain).backward()
 
         total_penalty = sum(
-            value for value in [loss_Gmain, loss_Gpl, loss_Dgen, loss_Dreal, loss_Dr1_value]
+            value for value in [loss_Gmain_value, loss_Gpl_value, loss_Dgen_value, loss_Dreal_value, loss_Dr1_value_value]
             if value is not None
         )
 
