@@ -120,7 +120,7 @@ def training_loop(
     cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
     abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
-    mtcnn=None,  # Face detector passed from train.py
+    mtcnn                   =None,      # Face detector passed from train.py
 ):
     # Initialize.
     start_time = time.time()
@@ -192,7 +192,7 @@ def training_loop(
     # Setup training phases.
     if rank == 0:
         print('Setting up training phases...')
-    loss = dnnlib.util.construct_class_by_name(device=device, G=G, D=D, augment_pipe=augment_pipe, **loss_kwargs) # subclass of training.loss.Loss
+    loss = dnnlib.util.construct_class_by_name(device=device, G=G, D=D, mtcnn=mtcnn, augment_pipe=augment_pipe, **loss_kwargs) # subclass of training.loss.Loss
     phases = []
     for name, module, opt_kwargs, reg_interval in [('G', G, G_opt_kwargs, G_reg_interval), ('D', D, D_opt_kwargs, D_reg_interval)]:
         if reg_interval is None:

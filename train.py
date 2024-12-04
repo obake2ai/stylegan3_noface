@@ -47,7 +47,7 @@ def subprocess_fn(rank, c, temp_dir):
         custom_ops.verbosity = 'none'
 
     # Execute training loop.
-    training_loop.training_loop(rank=rank, **c)
+    training_loop.training_loop(rank=rank, mtcnn=c.mtcnn, **c)
 
 #----------------------------------------------------------------------------
 
@@ -66,7 +66,7 @@ def launch_training(c, desc, outdir, dry_run):
 
     print('Initializing face detector...')
     mtcnn = MTCNN(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-    c.loss_kwargs = dnnlib.EasyDict(mtcnn=mtcnn)
+    c.mtcnn = mtcnn
 
 
     # Print options.
