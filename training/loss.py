@@ -224,7 +224,7 @@ class StyleGAN2Loss_direct_feedback(StyleGAN2Loss):
                     try:
                         img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
                         boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
-                        if probs is not None and len(probs) > 0:
+                        if probs is not None and len(probs) > 0 and probs[0] is not None:
                             face_probs.append(probs[0])
                         else:
                             face_probs.append(0.0)
