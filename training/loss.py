@@ -204,5 +204,40 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                     face_penalty_value = face_penalty.item()
                     training_stats.report('Loss/G/face_penalty', face_penalty_value)
 
-                # 全ペナルティを表示
                 print(f"[Phase: {phase}] Face_penalty: {face_penalty_value}")
+
+class StyleGAN2Loss_direct_feedback(StyleGAN2Loss):
+    def __init__(self, device, G, D, face_detector, lambda_face_penalty=2.0, **kwargs):
+        super().__init__(device, G, D, **kwargs)
+        self.face_detector = face_detector
+        self.lambda_face_penalty = lambda_face_penalty
+
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
+        super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
+
+        if phase in ['Gmain', 'Gboth']:
+            with torch.autograd.profiler.record_function('G_direct_feedback'):
+                gen_img, _gen_ws = self.run_G(gen_z, gen_c)
+
+                face_probs = []
+                for i, img in enumerate(gen_img):
+                    try:
+                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+                        boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
+                        if probs is not None and len(probs) > 0:
+                            face_probs.append(probs[0])
+                        else:
+                            face_probs.append(0.0)
+                    except Exception as e:
+                        print(f"Error during face detection for image {i}: {e}")
+                        face_probs.append(0.0)
+
+                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
+                target_probs = torch.zeros_like(face_probs, requires_grad=False)
+                face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
+                total_loss = face_penalty * self.lambda_face_penalty
+                total_loss.mean().mul(gain).backward()
+
+                face_penalty_value = face_penalty.mean().item()
+                training_stats.report('Loss/G/face_penalty', face_penalty_value)
+                print(f"[Phase: {phase}] Face Penalty: {face_penalty_value:.4f}, Total Loss: {total_loss.mean().item():.4f}")
