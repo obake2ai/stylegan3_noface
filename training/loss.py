@@ -207,7 +207,7 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                 print(f"[Phase: {phase}] Face_penalty: {face_penalty_value}")
 
 class StyleGAN2Loss_direct_feedback(StyleGAN2Loss):
-    def __init__(self, device, G, D, face_detector, lambda_face_penalty=2.0, **kwargs):
+    def __init__(self, device, G, D, face_detector, lambda_face_penalty=10.0, **kwargs):
         super().__init__(device, G, D, **kwargs)
         self.face_detector = face_detector
         self.lambda_face_penalty = lambda_face_penalty
