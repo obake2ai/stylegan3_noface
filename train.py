@@ -105,7 +105,7 @@ def launch_training(c, desc, outdir, dry_run):
         if c.num_gpus == 1:
             subprocess_fn(rank=0, c=c, face_detector=face_detector, text_detector=text_detector, temp_dir=temp_dir)
         else:
-            torch.multiprocessing.spawn(fn=subprocess_fn, args=(c, face_detector, text_detector=text_detector,  temp_dir), nprocs=c.num_gpus)
+            torch.multiprocessing.spawn(fn=subprocess_fn, args=(c, face_detector, text_detector,  temp_dir), nprocs=c.num_gpus)
 
 #----------------------------------------------------------------------------
 
