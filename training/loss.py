@@ -241,3 +241,58 @@ class StyleGAN2Loss_direct_feedback(StyleGAN2Loss):
                 face_penalty_value = face_penalty.mean().item()
                 training_stats.report('Loss/G/face_penalty', face_penalty_value)
                 print(f"[Phase: {phase}] Face Penalty: {face_penalty_value:.4f}, Total Loss: {total_loss.mean().item():.4f}")
+
+class StyleGAN2Loss_noface_notext(StyleGAN2Loss):
+    def __init__(self, device, G, D, face_detector, text_detector, **kwargs):
+        super().__init__(device, G, D, **kwargs)
+        self.face_detector = face_detector
+        self.text_detector = text_detector
+
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
+        super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
+
+        if phase in ['Gmain', 'Gboth']:
+            with torch.autograd.profiler.record_function('G_noface_notext_loss'):
+                gen_img, _gen_ws = self.run_G(gen_z, gen_c)
+
+                # Face detection
+                face_probs = []
+                for i, img in enumerate(gen_img):
+                    try:
+                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+                        boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
+                        face_probs.append(probs[0] if probs is not None and len(probs) > 0 and probs[0] is not None else 0.0)
+                    except Exception as e:
+                        print(f"Error during face detection for image {i}: {e}")
+                        face_probs.append(0.0)
+
+                # Text detection
+                text_probs = []
+                for i, img in enumerate(gen_img):
+                    try:
+                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+                        text_detected = self.text_detector.detect(img_scaled)
+                        text_probs.append(1.0 if text_detected else 0.0)
+                    except Exception as e:
+                        print(f"Error during text detection for image {i}: {e}")
+                        text_probs.append(0.0)
+
+                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
+                text_probs = torch.tensor(text_probs, dtype=torch.float32, device=self.device, requires_grad=True)
+
+                target_probs = torch.zeros_like(face_probs, requires_grad=False)
+
+                face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
+                text_penalty = torch.nn.functional.mse_loss(text_probs, target_probs)
+
+                total_penalty = face_penalty + text_penalty
+
+                total_penalty.mean().mul(gain).backward()
+
+                face_penalty_value = face_penalty.mean().item()
+                text_penalty_value = text_penalty.mean().item()
+
+                training_stats.report('Loss/G/face_penalty', face_penalty_value)
+                training_stats.report('Loss/G/text_penalty', text_penalty_value)
+
+                print(f"[Phase: {phase}] Face Penalty: {face_penalty_value:.4f}, Text Penalty: {text_penalty_value:.4f}, Total Penalty: {total_penalty.mean().item():.4f}")

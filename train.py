@@ -23,10 +23,11 @@ from torch_utils import training_stats
 from torch_utils import custom_ops
 
 from facenet_pytorch import MTCNN
+from craft_text_detector import Craft
 
 #----------------------------------------------------------------------------
 
-def subprocess_fn(rank, c, face_detector, temp_dir):
+def subprocess_fn(rank, c, face_detector, text_detector, temp_dir):
     dnnlib.util.Logger(file_name=os.path.join(c.run_dir, 'log.txt'), file_mode='a', should_flush=True)
 
     # Init torch.distributed.
@@ -46,7 +47,7 @@ def subprocess_fn(rank, c, face_detector, temp_dir):
         custom_ops.verbosity = 'none'
 
     # Execute training loop.
-    training_loop.training_loop(rank=rank, face_detector=face_detector, **c)
+    training_loop.training_loop(rank=rank, face_detector=face_detector, text_detector=text_detector, **c)
 
 #----------------------------------------------------------------------------
 
@@ -66,6 +67,8 @@ def launch_training(c, desc, outdir, dry_run):
     print('Initializing face detector...')
     face_detector = MTCNN(device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
+    print('Initializing text detector...')
+    text_detector = Craft(output_dir=os.path.join(c.run_dir, 'craft_outputs'), cuda=torch.cuda.is_available())
 
     # Print options.
     print()
@@ -100,9 +103,9 @@ def launch_training(c, desc, outdir, dry_run):
     torch.multiprocessing.set_start_method('spawn')
     with tempfile.TemporaryDirectory() as temp_dir:
         if c.num_gpus == 1:
-            subprocess_fn(rank=0, c=c, face_detector=face_detector, temp_dir=temp_dir)
+            subprocess_fn(rank=0, c=c, face_detector=face_detector, text_detector=text_detector, temp_dir=temp_dir)
         else:
-            torch.multiprocessing.spawn(fn=subprocess_fn, args=(c, face_detector, temp_dir), nprocs=c.num_gpus)
+            torch.multiprocessing.spawn(fn=subprocess_fn, args=(c, face_detector, text_detector=text_detector,  temp_dir), nprocs=c.num_gpus)
 
 #----------------------------------------------------------------------------
 
