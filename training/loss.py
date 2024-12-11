@@ -271,8 +271,8 @@ class StyleGAN2Loss_noface_notext(StyleGAN2Loss):
                 for i, img in enumerate(gen_img):
                     try:
                         img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-                        text_detected = self.text_detector.detect(img_scaled)
-                        text_probs.append(1.0 if text_detected else 0.0)
+                        prediction_result = self.text_detector.detect_text(image=img_scaled)  # 修正箇所: .detect() から .detect_text() に変更
+                        text_probs.append(1.0 if len(prediction_result['boxes']) > 0 else 0.0)  # テキストが検出された場合は1.0、そうでない場合は0.0
                     except Exception as e:
                         print(f"Error during text detection for image {i}: {e}")
                         text_probs.append(0.0)
