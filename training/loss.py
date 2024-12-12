@@ -160,57 +160,15 @@ class StyleGAN2Loss(Loss):
             print(f"[Phase: {phase}] Dgen: {loss_Dgen_value}, Dreal: {loss_Dreal_value}, Dr1: {loss_Dr1_value}, Total: {total_penalty:.4f}")
 
 #----------------------------------------------------------------------------
+
 class StyleGAN2Loss_noface(StyleGAN2Loss):
-    def __init__(self, device, G, D, face_detector, **kwargs):
-        super().__init__(device, G, D, **kwargs)
-        self.face_detector = face_detector
-
-    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
-        super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
-
-        if phase in ['Gmain', 'Gboth']:
-            with torch.autograd.profiler.record_function('G_noface_loss'):
-                gen_img, _gen_ws = self.run_G(gen_z, gen_c)
-
-                # Detect faces using MTCNN and compute probabilities
-                face_probs = []
-                for i, img in enumerate(gen_img):
-                    try:
-                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-                        boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
-
-                        # If no faces are detected, probs will be None
-                        if probs[0] is not None and len(probs) > 0:
-                            face_probs.append(probs[0])  # Use the first detected face's probability
-                        else:
-                            face_probs.append(0.0)  # No faces detected
-                    except Exception as e:
-                        # Handle unexpected errors during face detection
-                        print(f"Error during face detection for image {i}: {e}")
-                        face_probs.append(0.0)
-
-                # Convert probabilities to tensor
-                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
-
-                # Penalize high face detection probabilities
-                target_probs = torch.zeros_like(face_probs, requires_grad=False)  # Target: Not Face (probability close to 0)
-                face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
-
-                # Backpropagation
-                face_penalty.mean().mul(gain).backward()
-
-                # Face penalty
-                if phase in ['Gmain', 'Gboth']:
-                    face_penalty_value = face_penalty.item()
-                    training_stats.report('Loss/G/face_penalty', face_penalty_value)
-
-                print(f"[Phase: {phase}] Face_penalty: {face_penalty_value}")
-
-class StyleGAN2Loss_direct_feedback(StyleGAN2Loss):
-    def __init__(self, device, G, D, face_detector, lambda_face_penalty=10.0, **kwargs):
+    def __init__(self, device, G, D, face_detector, lambda_face_penalty=10.0, smoothing=0.99, **kwargs):
         super().__init__(device, G, D, **kwargs)
         self.face_detector = face_detector
         self.lambda_face_penalty = lambda_face_penalty
+        self.smoothing = smoothing
+        self.running_g_loss = 0.0
+        self.running_face_penalty = 0.0
 
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
         super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
@@ -224,75 +182,30 @@ class StyleGAN2Loss_direct_feedback(StyleGAN2Loss):
                     try:
                         img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
                         boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
-                        if probs is not None and len(probs) > 0 and probs[0] is not None:
-                            face_probs.append(probs[0])
-                        else:
-                            face_probs.append(0.0)
-                    except Exception as e:
-                        print(f"Error during face detection for image {i}: {e}")
-                        face_probs.append(0.0)
-
-                face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
-                target_probs = torch.zeros_like(face_probs, requires_grad=False)
-                face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
-                total_loss = face_penalty * self.lambda_face_penalty
-                total_loss.mean().mul(gain).backward()
-
-                face_penalty_value = face_penalty.mean().item()
-                training_stats.report('Loss/G/face_penalty', face_penalty_value)
-                print(f"[Phase: {phase}] Face Penalty: {face_penalty_value:.4f}, Total Loss: {total_loss.mean().item():.4f}")
-
-class StyleGAN2Loss_noface_notext(StyleGAN2Loss):
-    def __init__(self, device, G, D, face_detector, text_detector, **kwargs):
-        super().__init__(device, G, D, **kwargs)
-        self.face_detector = face_detector
-        self.text_detector = text_detector
-
-    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
-        super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
-
-        if phase in ['Gmain', 'Gboth']:
-            with torch.autograd.profiler.record_function('G_noface_notext_loss'):
-                gen_img, _gen_ws = self.run_G(gen_z, gen_c)
-
-                # Face detection
-                face_probs = []
-                for i, img in enumerate(gen_img):
-                    try:
-                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-                        boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
                         face_probs.append(probs[0] if probs is not None and len(probs) > 0 and probs[0] is not None else 0.0)
                     except Exception as e:
                         print(f"Error during face detection for image {i}: {e}")
                         face_probs.append(0.0)
 
-                # Text detection
-                text_probs = []
-                for i, img in enumerate(gen_img):
-                    try:
-                        img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-                        prediction_result = self.text_detector.detect_text(image=img_scaled)  # 修正箇所: .detect() から .detect_text() に変更
-                        text_probs.append(1.0 if len(prediction_result['boxes']) > 0 else 0.0)  # テキストが検出された場合は1.0、そうでない場合は0.0
-                    except Exception as e:
-                        print(f"Error during text detection for image {i}: {e}")
-                        text_probs.append(0.0)
-
                 face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
-                text_probs = torch.tensor(text_probs, dtype=torch.float32, device=self.device, requires_grad=True)
-
                 target_probs = torch.zeros_like(face_probs, requires_grad=False)
+                face_penalty = torch.nn.functional.binary_cross_entropy(face_probs, target_probs)
 
-                face_penalty = torch.nn.functional.mse_loss(face_probs, target_probs)
-                text_penalty = torch.nn.functional.mse_loss(text_probs, target_probs)
+                gen_logits = self.run_D(gen_img, gen_c)
+                g_loss = torch.nn.functional.softplus(-gen_logits).mean()
 
-                total_penalty = face_penalty + text_penalty
+                self.running_g_loss = self.smoothing * self.running_g_loss + (1 - self.smoothing) * g_loss.item()
+                self.running_face_penalty = self.smoothing * self.running_face_penalty + (1 - self.smoothing) * face_penalty.item()
 
-                total_penalty.mean().mul(gain).backward()
+                epsilon = 1e-8
+                if self.running_face_penalty > 0:
+                    self.lambda_face_penalty = self.running_g_loss / (self.running_face_penalty + epsilon)
+
+                total_loss = g_loss + self.lambda_face_penalty * face_penalty
+                total_loss.mean().mul(gain).backward()
 
                 face_penalty_value = face_penalty.mean().item()
-                text_penalty_value = text_penalty.mean().item()
-
                 training_stats.report('Loss/G/face_penalty', face_penalty_value)
-                training_stats.report('Loss/G/text_penalty', text_penalty_value)
-
-                print(f"[Phase: {phase}] Face Penalty: {face_penalty_value:.4f}, Text Penalty: {text_penalty_value:.4f}, Total Penalty: {total_penalty.mean().item():.4f}")
+                training_stats.report('Loss/G/total_loss', total_loss.mean().item())
+                training_stats.report('Loss/G/lambda_face_penalty', self.lambda_face_penalty)
+                print(f"[Phase: {phase}] G_loss: {g_loss.item():.4f}, Face Penalty: {face_penalty_value:.4f}, Total Loss: {total_loss.mean().item():.4f}, Lambda Face Penalty: {self.lambda_face_penalty:.4f}")
