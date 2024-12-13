@@ -162,34 +162,34 @@ class StyleGAN2Loss(Loss):
 #----------------------------------------------------------------------------
 
 class StyleGAN2Loss_noface(StyleGAN2Loss):
-    def __init__(self, device, G, D, face_detector, lambda_face_penalty=10.0, smoothing=0.99, **kwargs):
+    def __init__(self, device, G, D, face_detector, lambda_face_penalty=10.0, smoothing=0.99, min_lambda=0.25, **kwargs):
         super().__init__(device, G, D, **kwargs)
         self.face_detector = face_detector
         self.lambda_face_penalty = lambda_face_penalty
         self.smoothing = smoothing
         self.running_g_loss = 0.0
+        self.running_d_loss = 0.0
         self.running_face_penalty = 0.0
+        self.min_lambda = min_lambda
 
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
         super().accumulate_gradients(phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg)
 
-        if phase in ['Gmain', 'Gboth']:
-            with torch.autograd.profiler.record_function('G_direct_feedback'):
+        if phase in ['Gmain', 'Gboth', 'Dmain', 'Dboth']:
+            with torch.autograd.profiler.record_function('G_D_direct_feedback'):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c)
-
                 face_probs = []
+
                 for i, img in enumerate(gen_img):
                     try:
                         img_scaled = (img * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
                         boxes, probs = self.face_detector.detect(img_scaled, landmarks=False)
                         face_probs.append(probs[0] if probs is not None and len(probs) > 0 and probs[0] is not None else 0.0)
                     except Exception as e:
-                        print(f"Error during face detection for image {i}: {e}")
                         face_probs.append(0.0)
 
                 face_probs = torch.tensor(face_probs, dtype=torch.float32, device=self.device, requires_grad=True)
-                target_probs = torch.zeros_like(face_probs, requires_grad=False)
-                face_penalty = torch.nn.functional.binary_cross_entropy(face_probs, target_probs)
+                face_penalty = torch.nn.functional.relu(face_probs - 0.5).mean()
 
                 gen_logits = self.run_D(gen_img, gen_c)
                 g_loss = torch.nn.functional.softplus(-gen_logits).mean()
@@ -197,15 +197,33 @@ class StyleGAN2Loss_noface(StyleGAN2Loss):
                 self.running_g_loss = self.smoothing * self.running_g_loss + (1 - self.smoothing) * g_loss.item()
                 self.running_face_penalty = self.smoothing * self.running_face_penalty + (1 - self.smoothing) * face_penalty.item()
 
-                epsilon = 1e-8
-                if self.running_face_penalty > 0:
-                    self.lambda_face_penalty = self.running_g_loss / (self.running_face_penalty + epsilon)
+                if face_penalty.item() > 0:
+                    self.lambda_face_penalty = max(self.running_g_loss / (face_penalty.item() + 1e-8), self.min_lambda)
 
-                total_loss = g_loss + self.lambda_face_penalty * face_penalty
-                total_loss.mean().mul(gain).backward()
+                total_loss_G = g_loss + self.lambda_face_penalty * face_penalty
+
+                if phase in ['Gmain', 'Gboth']:
+                    total_loss_G.mean().mul(gain).backward()
+
+                if phase in ['Dmain', 'Dboth']:
+                    d_logits_real = self.run_D(real_img, real_c)
+                    d_loss_real = torch.nn.functional.softplus(-d_logits_real).mean()
+
+                    d_logits_fake = self.run_D(gen_img.detach(), gen_c)
+                    d_loss_fake = torch.nn.functional.softplus(d_logits_fake).mean()
+
+                    self.running_d_loss = self.smoothing * self.running_d_loss + (1 - self.smoothing) * (d_loss_real + d_loss_fake).item()
+
+                    face_penalty_D = torch.nn.functional.relu(face_probs - 0.5).mean()
+
+                    total_loss_D = d_loss_real + d_loss_fake + self.lambda_face_penalty * face_penalty_D
+                    total_loss_D.mean().mul(gain).backward()
 
                 face_penalty_value = face_penalty.mean().item()
+                face_penalty_value_D = face_penalty_D.mean().item() if 'Dmain' in phase or 'Dboth' in phase else 0
                 training_stats.report('Loss/G/face_penalty', face_penalty_value)
-                training_stats.report('Loss/G/total_loss', total_loss.mean().item())
+                training_stats.report('Loss/D/face_penalty', face_penalty_value_D)
+                training_stats.report('Loss/G/total_loss', total_loss_G.mean().item())
+                training_stats.report('Loss/D/total_loss', total_loss_D.mean().item() if 'Dmain' in phase or 'Dboth' in phase else 0)
                 training_stats.report('Loss/G/lambda_face_penalty', self.lambda_face_penalty)
-                print(f"[Phase: {phase}] G_loss: {g_loss.item():.4f}, Face Penalty: {face_penalty_value:.4f}, Total Loss: {total_loss.mean().item():.4f}, Lambda Face Penalty: {self.lambda_face_penalty:.4f}")
+                print(f"[Phase: {phase}] G_loss: {g_loss.item():.4f}, Face Penalty (G): {face_penalty_value:.4f}, Face Penalty (D): {face_penalty_value_D:.4f}, Total Loss (G): {total_loss_G.mean().item():.4f}, Total Loss (D): {total_loss_D.mean().item() if 'Dmain' in phase or 'Dboth' in phase else 0:.4f}, Lambda Face Penalty: {self.lambda_face_penalty:.4f}")
